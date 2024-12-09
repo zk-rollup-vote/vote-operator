@@ -6,7 +6,8 @@ const { ethers } = require("ethers");
 require("dotenv").config();
 
 const app = express();
-const port = 3000;
+app.timeout = 3000000;
+let port = process.env.PORT || 3000;
 
 app.use(bodyParser.json({ limit: "50mb" }));
 
@@ -17,20 +18,14 @@ if (!privateKey) {
   process.exit(1);
 }
 
-const db = mysql.createConnection({
+const db = mysql.createPool({
+  connectionLimit: 5,
+  acquireTimeout: 100000,
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
   port: process.env.DB_PORT || 3306,
-});
-
-db.connect((err) => {
-  if (err) {
-    console.error("Database connection failed: " + err.stack);
-    process.exit(1);
-  }
-  console.log("Connected");
 });
 
 const createTableQuery = `
@@ -88,12 +83,11 @@ app.get("/votes/:id", (req, res) => {
     if (results.length === 0) {
       return res.status(200).json({ data: [] });
     }
-    console.log(results[0].data);
+
     res.status(200).json({ data: JSON.parse(results[0].data) });
   });
 });
 
-// Start Server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
