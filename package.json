@@ -1,17 +1,38 @@
 {
   "name": "vote-operator",
   "version": "1.0.0",
+  "description": "Blockchain vote operator server with cryptographic signatures",
   "main": "index.js",
-  "license": "MIT",
   "scripts": {
-    "start": "node ./index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest"
   },
+  "keywords": [
+    "blockchain",
+    "voting",
+    "ethereum",
+    "cryptography",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "body-parser": "^1.20.3",
-    "dotenv": "^16.4.7",
-    "ethers": "^6.13.4",
-    "express": "^4.21.2",
-    "js-sha3": "^0.9.3",
-    "mysql": "^2.18.1"
-  }
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.8.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "mysql2": "^3.14.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
