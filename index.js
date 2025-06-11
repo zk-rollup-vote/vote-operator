@@ -8,6 +8,7 @@ const helmet = require("helmet");
 require("dotenv").config();
 
 const DEFAULT_PORT = 3000;
+const DEFAULT_HOST = "0.0.0.0";
 const REQUEST_TIMEOUT = 30000;
 const DB_CONNECTION_LIMIT = 10;
 const MAX_REQUESTS_PER_MINUTE = 10000;
@@ -16,6 +17,7 @@ class VoteOperatorServer {
   constructor() {
     this.app = express();
     this.port = process.env.PORT || DEFAULT_PORT;
+    this.host = process.env.HOST || DEFAULT_HOST;
     this.db = null;
     this.wallet = null;
 
@@ -46,11 +48,9 @@ class VoteOperatorServer {
   }
 
   initializeMiddleware() {
-    // Security middleware
     this.app.use(helmet());
     this.app.use(cors());
 
-    // Rate limiting
     const limiter = rateLimit({
       windowMs: 60 * 1000, // 1 minute
       max: MAX_REQUESTS_PER_MINUTE,
@@ -58,7 +58,6 @@ class VoteOperatorServer {
     });
     this.app.use(limiter);
 
-    // Body parsing
     this.app.use(
       bodyParser.json({
         limit: "50mb",
@@ -72,20 +71,17 @@ class VoteOperatorServer {
       })
     );
 
-    // Request timeout
     this.app.use((req, res, next) => {
       req.setTimeout(REQUEST_TIMEOUT);
       next();
     });
 
-    // Request logging
     this.app.use((req, res, next) => {
       console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
       next();
     });
   }
 
-  // Initialize database connection
   async initializeDatabase() {
     try {
       this.validateEnvironment();
@@ -97,15 +93,12 @@ class VoteOperatorServer {
         database: process.env.DB_DATABASE,
         port: process.env.DB_PORT || 3306,
         connectionLimit: DB_CONNECTION_LIMIT,
-        acquireTimeout: 60000,
-        timeout: 60000,
-        reconnect: true,
       });
 
       await this.createTables();
-      console.log("✅ Database connected and tables initialized");
+      console.log("Database connected and tables initialized");
     } catch (error) {
-      console.error("❌ Database initialization failed:", error.message);
+      console.error("Database initialization failed:", error.message);
       process.exit(1);
     }
   }
@@ -116,13 +109,12 @@ class VoteOperatorServer {
         id VARCHAR(66) PRIMARY KEY,
         data LONGTEXT NOT NULL,
         signature VARCHAR(132) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_created_at (created_at)
+        signer VARCHAR(42),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`;
 
     try {
       await this.db.execute(createTableQuery);
-      console.log("✅ Votes table ready");
     } catch (error) {
       throw new Error(`Failed to create tables: ${error.message}`);
     }
@@ -138,16 +130,15 @@ class VoteOperatorServer {
       }
 
       this.wallet = new ethers.Wallet(privateKey);
-      console.log("✅ Wallet initialized:", this.wallet.address);
+      console.log("Wallet initialized:", this.wallet.address);
     } catch (error) {
-      console.error("❌ Wallet initialization failed:", error.message);
+      console.error("Wallet initialization failed:", error.message);
       process.exit(1);
     }
   }
 
-  // Input validation middleware
   validateVoteData(req, res, next) {
-    const { data } = req.body;
+    const { data, signature, signer } = req.body;
 
     if (!data) {
       return res.status(400).json({
@@ -163,19 +154,64 @@ class VoteOperatorServer {
       });
     }
 
-    // Additional validation can be added here
-    if (JSON.stringify(data).length > 1000000) {
-      // 1MB limit
+    if (signature && typeof signature !== "string") {
       return res.status(400).json({
-        error: "Data too large",
-        code: "DATA_TOO_LARGE",
+        error: "Signature must be a string",
+        code: "INVALID_SIGNATURE_TYPE",
+      });
+    }
+
+    if (signature && !ethers.isHexString(signature)) {
+      return res.status(400).json({
+        error: "Signature must be a valid hex string",
+        code: "INVALID_SIGNATURE_FORMAT",
+      });
+    }
+
+    if (signer && !ethers.isAddress(signer)) {
+      return res.status(400).json({
+        error: "Invalid signer address format",
+        code: "INVALID_SIGNER_ADDRESS",
       });
     }
 
     next();
   }
 
-  // Initialize routes
+  async validateSignature(data, signature, expectedSigner = null) {
+    try {
+      const dataString = JSON.stringify(data);
+      const messageHash = ethers.keccak256(ethers.toUtf8Bytes(dataString));
+
+      const recoveredSigner = ethers.verifyMessage(
+        ethers.getBytes(messageHash),
+        signature
+      );
+
+      if (
+        expectedSigner &&
+        recoveredSigner.toLowerCase() !== expectedSigner.toLowerCase()
+      ) {
+        return {
+          isValid: false,
+          error: "Signature does not match expected signer",
+          recoveredSigner: recoveredSigner,
+        };
+      }
+
+      return {
+        isValid: true,
+        recoveredSigner: recoveredSigner,
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        error: `Signature verification failed: ${error.message}`,
+        recoveredSigner: null,
+      };
+    }
+  }
+
   initializeRoutes() {
     // Health check
     this.app.get("/", this.handleHealthCheck.bind(this));
@@ -187,6 +223,13 @@ class VoteOperatorServer {
       this.handleCreateVote.bind(this)
     );
     this.app.get("/votes/:id", this.handleGetVote.bind(this));
+
+    // Signature verification route
+    this.app.post(
+      "/verify-signature",
+      this.validateVoteData.bind(this),
+      this.handleVerifySignature.bind(this)
+    );
 
     // Additional utility routes
     this.app.get("/votes", this.handleGetAllVotes.bind(this));
@@ -214,18 +257,51 @@ class VoteOperatorServer {
 
   async handleCreateVote(req, res) {
     try {
-      const { data } = req.body;
+      const { data, signature: providedSignature, signer } = req.body;
 
       // Generate deterministic ID from data
       const dataString = JSON.stringify(data);
       const id = ethers.keccak256(ethers.toUtf8Bytes(dataString));
 
-      // Sign the data hash
-      const signature = await this.wallet.signMessage(ethers.getBytes(id));
+      let operatorSignature;
+      let signerAddress;
 
-      // Store in database
-      const query = "INSERT INTO votes (id, data, signature) VALUES (?, ?, ?)";
-      await this.db.execute(query, [id, dataString, signature]);
+      // If signature is provided, validate it
+      if (providedSignature) {
+        const validationResult = await this.validateSignature(
+          data,
+          providedSignature,
+          signer
+        );
+
+        if (!validationResult.isValid) {
+          return res.status(400).json({
+            error: validationResult.error,
+            code: "INVALID_SIGNATURE",
+          });
+        }
+
+        signerAddress = validationResult.recoveredSigner;
+        console.log(`Signature validated for signer: ${signerAddress}`);
+
+        operatorSignature = await this.wallet.signMessage(ethers.getBytes(id));
+        console.log(`Operator signature created: ${operatorSignature}`);
+      } else {
+        return res.status(400).json({
+          error: "signature is required",
+          code: "INVALID_SIGNATURE",
+        });
+      }
+
+      // Store in database with operator signature
+      const query =
+        "INSERT INTO votes (id, data, signature, signer) VALUES (?, ?, ?, ?)";
+      await this.db.execute(query, [
+        id,
+        dataString,
+        operatorSignature,
+        signerAddress,
+      ]);
 
       console.log(`✅ Vote created with ID: ${id}`);
 
@@ -234,7 +310,8 @@ class VoteOperatorServer {
         message: "Vote saved successfully",
         data: {
           id,
-          signature,
+          signature: operatorSignature,
+          signer: signerAddress,
           operator: this.wallet.address,
         },
       });
@@ -283,6 +360,7 @@ class VoteOperatorServer {
           id: vote.id,
           data: JSON.parse(vote.data),
           signature: vote.signature,
+          signer: vote.signer,
           createdAt: vote.created_at,
         },
       });
@@ -314,9 +392,52 @@ class VoteOperatorServer {
         },
       });
     } catch (error) {
-      console.error("❌ Get all votes error:", error);
+      console.error("Get all votes error:", error);
       res.status(500).json({
         error: "Failed to retrieve votes",
+        code: "INTERNAL_ERROR",
+      });
+    }
+  }
+
+  async handleVerifySignature(req, res) {
+    try {
+      const { data, signature, signer } = req.body;
+
+      if (!signature) {
+        return res.status(400).json({
+          error: "Signature is required for verification",
+          code: "MISSING_SIGNATURE",
+        });
+      }
+
+      const validationResult = await this.validateSignature(
+        data,
+        signature,
+        signer
+      );
+
+      if (!validationResult.isValid) {
+        return res.status(400).json({
+          success: false,
+          error: validationResult.error,
+          code: "SIGNATURE_VERIFICATION_FAILED",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Signature is valid",
+        data: {
+          isValid: true,
+          recoveredSigner: validationResult.recoveredSigner,
+          dataHash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(data))),
+        },
+      });
+    } catch (error) {
+      console.error("Verify signature error:", error);
+      res.status(500).json({
+        error: "Failed to verify signature",
         code: "INTERNAL_ERROR",
       });
     }
@@ -334,7 +455,7 @@ class VoteOperatorServer {
 
     // Global error handler
     this.app.use((err, req, res, next) => {
-      console.error("❌ Unhandled error:", err);
+      console.error("Unhandled error:", err);
 
       if (err.type === "entity.parse.failed") {
         return res.status(400).json({
@@ -353,27 +474,24 @@ class VoteOperatorServer {
   // Start the server
   async start() {
     try {
-      this.app.listen(this.port, () => {
-        console.log(`🚀 Vote Operator Server running on port ${this.port}`);
-        console.log(`📊 Health check: http://localhost:${this.port}/`);
+      this.app.listen(this.port, this.host, () => {
         console.log(
-          `🗳️  Create vote: POST http://localhost:${this.port}/votes`
+          `Vote Operator Server running on ${this.host}:${this.port}`
         );
-        console.log(`📋 Get vote: GET http://localhost:${this.port}/votes/:id`);
       });
     } catch (error) {
-      console.error("❌ Server start failed:", error);
+      console.error("Server start failed:", error);
       process.exit(1);
     }
   }
 
   // Graceful shutdown
   async shutdown() {
-    console.log("🔄 Shutting down gracefully...");
+    console.log("Shutting down gracefully...");
 
     if (this.db) {
       await this.db.end();
-      console.log("✅ Database connections closed");
+      console.log("Database connections closed");
     }
 
     process.exit(0);

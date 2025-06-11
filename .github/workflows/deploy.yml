@@ -76,8 +76,9 @@ jobs:
             sleep 5
 
             # Health check
+            APP_HOST="${{ secrets.APP_HOST || 'localhost' }}"
             APP_PORT="${{ secrets.APP_PORT || '5001' }}"
-            if curl -f http://localhost:$APP_PORT/ >/dev/null 2>&1; then
+            if curl -f http://$APP_HOST:$APP_PORT/ >/dev/null 2>&1; then
               echo "✅ Application is running and responding"
             else
               echo "⚠️ Health check failed - application may not be responding"
