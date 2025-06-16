@@ -356,13 +356,7 @@ class VoteOperatorServer {
       const vote = results[0];
       res.status(200).json({
         success: true,
-        data: {
-          id: vote.id,
-          data: JSON.parse(vote.data),
-          signature: vote.signature,
-          signer: vote.signer,
-          createdAt: vote.created_at,
-        },
+        data: JSON.parse(vote.data),
       });
     } catch (error) {
       console.error("❌ Get vote error:", error);
