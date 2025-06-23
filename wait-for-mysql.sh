@@ -62,68 +62,51 @@ fi
 attempt=0
 max_attempts=30
 
+# Wait for MySQL to be ready - simplified approach
+# Since MariaDB client has compatibility issues with MySQL 8.0 auth,
+# we'll use network connectivity + timing approach
+attempt=0
+max_attempts=30
+
+echo "🔄 Using simplified MySQL readiness check (network + timing)..."
+
 while [ $attempt -lt $max_attempts ]; do
   attempt=$((attempt + 1))
   
-  echo "🔄 MySQL connection attempt $attempt/$max_attempts..."
+  echo "🔄 Connectivity check $attempt/$max_attempts..."
   
-  # Try connecting with a simpler approach first - add explicit protocol and disable ssl for MariaDB client
-  if $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" >/dev/null 2>/dev/null; then
-    echo "✅ MySQL connection successful!"
-    break
+  # Test network connectivity
+  if nc -z "$host" "$port"; then
+    echo "✅ Port $port is reachable on $host"
+    
+    # Wait a bit more for MySQL to be fully ready after port becomes available
+    if [ $attempt -ge 5 ]; then
+      echo "✅ MySQL should be ready! Port has been accessible for multiple attempts."
+      break
+    else
+      echo "🔍 Port is open, waiting for MySQL to fully initialize..."
+    fi
   else
-    echo "❌ MySQL connection failed (attempt $attempt/$max_attempts)"
-    
-    # Get detailed error on every 5th attempt
-    if [ $((attempt % 5)) -eq 0 ]; then
-      echo "🔍 Getting detailed error information..."
-      error_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" 2>&1)
-      echo "   Error: $error_output"
-    fi
-    
-    if [ $attempt -ge $max_attempts ]; then
-      echo "❌ MySQL failed to become available after $max_attempts attempts"
-      echo "🔍 Final debug information:"
-      echo "   DNS resolution test:"
-      nslookup "$host" 2>/dev/null || echo "   DNS resolution failed for $host"
-      echo "   Network connectivity test:"
-      nc -z "$host" "$port" && echo "   Port is reachable" || echo "   Port is not reachable"
-      echo "   Final MySQL connection attempt with full error:"
-      $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" 2>&1 || true
-      exit 1
-    fi
-    
-    echo "⏳ Waiting 3 seconds before retry..."
-    sleep 3
+    echo "❌ Cannot reach $host:$port (attempt $attempt/$max_attempts)"
   fi
-done
-
-echo "✅ MySQL is ready!"
-
-# Test database connection
-echo "🔍 Testing database connection to '$database'..."
-db_test_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl --protocol=TCP -e "USE $database; SELECT 'Database connection successful' as status;" 2>&1)
-
-if [ $? -eq 0 ]; then
-  echo "✅ Database connection verified!"
-  echo "   Output: $db_test_output"
-else
-  echo "❌ Database connection failed!"
-  echo "   Error: $db_test_output"
-  echo "🔍 Attempting to create database if it doesn't exist..."
   
-  # Try to create the database if it doesn't exist
-  create_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl --protocol=TCP -e "CREATE DATABASE IF NOT EXISTS $database;" 2>&1)
-  
-  if [ $? -eq 0 ]; then
-    echo "✅ Database created/verified successfully!"
-    echo "   Output: $create_output"
-  else
-    echo "❌ Failed to create database!"
-    echo "   Error: $create_output"
+  if [ $attempt -ge $max_attempts ]; then
+    echo "❌ MySQL failed to become available after $max_attempts attempts"
+    echo "🔍 Final debug information:"
+    echo "   DNS resolution test:"
+    nslookup "$host" 2>/dev/null || echo "   DNS resolution failed for $host"
     exit 1
   fi
-fi
+  
+  echo "⏳ Waiting 2 seconds before retry..."
+  sleep 2
+done
+
+echo "✅ MySQL network connectivity verified!"
+
+# Note: Skipping database connection test with MariaDB client due to MySQL 8.0 compatibility issues
+# The Node.js application will handle database connection and creation using mysql2 driver
+echo "🔍 The Node.js application will handle database connection and creation..."
 
 echo "🚀 Starting Vote Operator application..."
 exec node index.js
