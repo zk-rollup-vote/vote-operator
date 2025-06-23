@@ -1,6 +1,9 @@
 # Use official Node.js runtime as base image
 FROM node:18-alpine AS base
 
+# Install mysql-client for the wait script
+RUN apk add --no-cache mysql-client
+
 # Set working directory
 WORKDIR /app
 
@@ -25,6 +28,9 @@ RUN if [ -f yarn.lock ]; then \
 # Copy application code
 COPY . .
 
+# Make wait script executable
+RUN chmod +x wait-for-mysql.sh
+
 # Change ownership to non-root user
 RUN chown -R voteoperator:nodejs /app
 USER voteoperator
@@ -33,8 +39,17 @@ USER voteoperator
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e " \
+    const http = require('http'); \
+    const options = { hostname: 'localhost', port: 3000, path: '/', timeout: 3000 }; \
+    const req = http.request(options, (res) => { \
+      process.exit(res.statusCode === 200 ? 0 : 1); \
+    }); \
+    req.on('error', () => process.exit(1)); \
+    req.on('timeout', () => process.exit(1)); \
+    req.end(); \
+  "
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["./wait-for-mysql.sh"]
