@@ -1,8 +1,8 @@
 # Use official Node.js runtime as base image
 FROM node:18-alpine AS base
 
-# Install mysql-client for the wait script
-RUN apk add --no-cache mysql-client
+# Install mysql-client for the wait script and netcat for network testing
+RUN apk add --no-cache mysql-client netcat-openbsd
 
 # Set working directory
 WORKDIR /app
