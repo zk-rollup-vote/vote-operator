@@ -22,6 +22,8 @@ A secure blockchain voting server that stores vote data with cryptographic signa
 
 ## 🛠️ Installation
 
+### Local Development
+
 1. Clone the repository
 2. Install dependencies:
 
@@ -52,6 +54,34 @@ DB_PORT=3306
 OPERATOR_PRIVATE_KEY=0x123..
 ```
 
+### Docker Deployment
+
+1. Build the Docker image:
+
+```bash
+docker build -t vote-operator .
+```
+
+2. Run with environment variables:
+
+```bash
+docker run -d \
+  --name vote-operator \
+  -p 3000:3000 \
+  -e DB_HOST=your_db_host \
+  -e DB_USER=your_db_user \
+  -e DB_PASSWORD=your_db_password \
+  -e DB_DATABASE=vote_operator \
+  -e OPERATOR_PRIVATE_KEY=0x123... \
+  vote-operator
+```
+
+3. Or use docker-compose (see docker-compose.yml):
+
+```bash
+docker-compose up -d
+```
+
 ## 🚀 Usage
 
 ### Development
@@ -64,6 +94,20 @@ npm run dev
 
 ```bash
 npm start
+```
+
+### Docker
+
+```bash
+# Build and run
+docker build -t vote-operator .
+docker run -p 3000:3000 --env-file .env vote-operator
+
+# View logs
+docker logs vote-operator
+
+# Stop container
+docker stop vote-operator
 ```
 
 ## 📡 API Endpoints

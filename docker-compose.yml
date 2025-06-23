@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  vote-operator:
+    build: .
+    container_name: vote-operator
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DATABASE=${DB_DATABASE}
+      - DB_PORT=${DB_PORT}
+      - OPERATOR_PRIVATE_KEY=${OPERATOR_PRIVATE_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mysql:
+    image: mysql:8.0
+    container_name: vote-operator-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: vote_operator
+      MYSQL_USER: voteuser
+      MYSQL_PASSWORD: votepassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    restart: unless-stopped
+    networks:
+      - vote-network
+
+volumes:
+  mysql_data:
+
+networks:
+  vote-network:
+    driver: bridge
