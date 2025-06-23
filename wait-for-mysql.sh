@@ -19,11 +19,11 @@ echo "   User: $user"
 echo "   Database: $database"
 
 # Check if MySQL/MariaDB client is available
-mysql_cmd="mysql"
-if ! which mysql >/dev/null 2>&1; then
-  if which mariadb >/dev/null 2>&1; then
-    mysql_cmd="mariadb"
-    echo "✅ Using MariaDB client"
+mysql_cmd="mariadb"
+if ! which mariadb >/dev/null 2>&1; then
+  if which mysql >/dev/null 2>&1; then
+    mysql_cmd="mysql"
+    echo "⚠️  Using deprecated mysql command (MariaDB client)"
   else
     echo "❌ Neither MySQL nor MariaDB client found! Installing..."
     apk add --no-cache mysql-client || {
@@ -46,12 +46,7 @@ if ! which mysql >/dev/null 2>&1; then
     }
   fi
 else
-  # Check if it's actually MariaDB masquerading as MySQL
-  if mysql --version 2>&1 | grep -i mariadb >/dev/null; then
-    echo "✅ Detected MariaDB client (using mysql command)"
-  else
-    echo "✅ Using MySQL client"
-  fi
+  echo "✅ Using MariaDB client"
 fi
 
 # First, check if we can reach the host and port
@@ -72,8 +67,8 @@ while [ $attempt -lt $max_attempts ]; do
   
   echo "🔄 MySQL connection attempt $attempt/$max_attempts..."
   
-  # Try connecting with a simpler approach first
-  if $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl -e "SELECT 1" >/dev/null 2>/dev/null; then
+  # Try connecting with a simpler approach first - add explicit protocol and disable ssl for MariaDB client
+  if $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" >/dev/null 2>/dev/null; then
     echo "✅ MySQL connection successful!"
     break
   else
@@ -82,7 +77,7 @@ while [ $attempt -lt $max_attempts ]; do
     # Get detailed error on every 5th attempt
     if [ $((attempt % 5)) -eq 0 ]; then
       echo "🔍 Getting detailed error information..."
-      error_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl -e "SELECT 1" 2>&1)
+      error_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" 2>&1)
       echo "   Error: $error_output"
     fi
     
@@ -94,7 +89,7 @@ while [ $attempt -lt $max_attempts ]; do
       echo "   Network connectivity test:"
       nc -z "$host" "$port" && echo "   Port is reachable" || echo "   Port is not reachable"
       echo "   Final MySQL connection attempt with full error:"
-      $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl -e "SELECT 1" 2>&1 || true
+      $mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --protocol=TCP -e "SELECT 1" 2>&1 || true
       exit 1
     fi
     
@@ -107,7 +102,7 @@ echo "✅ MySQL is ready!"
 
 # Test database connection
 echo "🔍 Testing database connection to '$database'..."
-db_test_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl -e "USE $database; SELECT 'Database connection successful' as status;" 2>&1)
+db_test_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl --protocol=TCP -e "USE $database; SELECT 'Database connection successful' as status;" 2>&1)
 
 if [ $? -eq 0 ]; then
   echo "✅ Database connection verified!"
@@ -118,7 +113,7 @@ else
   echo "🔍 Attempting to create database if it doesn't exist..."
   
   # Try to create the database if it doesn't exist
-  create_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl -e "CREATE DATABASE IF NOT EXISTS $database;" 2>&1)
+  create_output=$($mysql_cmd -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl --protocol=TCP -e "CREATE DATABASE IF NOT EXISTS $database;" 2>&1)
   
   if [ $? -eq 0 ]; then
     echo "✅ Database created/verified successfully!"
