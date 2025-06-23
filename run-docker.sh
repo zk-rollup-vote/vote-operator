@@ -111,7 +111,7 @@ fi
 cleanup_container
 
 echo "🐳 Starting Vote Operator with Docker Compose..."
-docker-compose up -d --build
+docker compose up -d --build
 
 if [ $? -eq 0 ]; then
     echo "✅ Services started successfully!"
@@ -130,9 +130,9 @@ fi
 
 echo ""
 echo "🔧 Useful commands:"
-echo "  Check status:     docker-compose ps"
-echo "  View logs:        docker-compose logs"
-echo "  Follow logs:      docker-compose logs -f"
-echo "  Stop services:    docker-compose down"
-echo "  Restart:          docker-compose restart"
-echo "  Rebuild:          docker-compose up -d --build"
+echo "  Check status:     docker compose ps"
+echo "  View logs:        docker compose logs"
+echo "  Follow logs:      docker compose logs -f"
+echo "  Stop services:    docker compose down"
+echo "  Restart:          docker compose restart"
+echo "  Rebuild:          docker compose up -d --build"
