@@ -58,6 +58,63 @@ show_logs() {
     echo ""
 }
 
+# Function to test network connectivity
+test_network_connectivity() {
+    echo "🔍 Testing network connectivity..."
+    
+    # Get host IP
+    local host_ip=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "localhost")
+    
+    echo "📍 Host IP detected: $host_ip"
+    
+    # Test if port is open on the host
+    if command -v netstat >/dev/null 2>&1; then
+        echo "🔌 Checking if port 3000 is bound on host:"
+        netstat -tulpn 2>/dev/null | grep :3000 || echo "   No processes found listening on port 3000"
+    fi
+    
+    # Test Docker port mapping
+    echo "🐳 Docker port mappings:"
+    docker port vote-operator 2>/dev/null || echo "   Could not retrieve port mappings"
+    
+    # Test connectivity from different angles
+    echo "🧪 Testing connectivity:"
+    
+    # Test localhost
+    if timeout 5 curl -s http://localhost:3000 >/dev/null 2>&1; then
+        echo "   ✅ localhost:3000 - OK"
+    else
+        echo "   ❌ localhost:3000 - Failed"
+    fi
+    
+    # Test 127.0.0.1
+    if timeout 5 curl -s http://127.0.0.1:3000 >/dev/null 2>&1; then
+        echo "   ✅ 127.0.0.1:3000 - OK"
+    else
+        echo "   ❌ 127.0.0.1:3000 - Failed"
+    fi
+    
+    # Test host IP if different
+    if [ "$host_ip" != "localhost" ] && [ "$host_ip" != "127.0.0.1" ]; then
+        if timeout 5 curl -s http://$host_ip:3000 >/dev/null 2>&1; then
+            echo "   ✅ $host_ip:3000 - OK"
+        else
+            echo "   ❌ $host_ip:3000 - Failed"
+        fi
+    fi
+    
+    # Test if we can reach the container directly
+    local container_ip=$(docker inspect vote-operator --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null)
+    if [ -n "$container_ip" ] && [ "$container_ip" != "<no value>" ]; then
+        echo "🐳 Container IP: $container_ip"
+        if timeout 5 curl -s http://$container_ip:3000 >/dev/null 2>&1; then
+            echo "   ✅ Direct container access - OK"
+        else
+            echo "   ❌ Direct container access - Failed"
+        fi
+    fi
+}
+
 # Function to check container status
 check_container_status() {
     local app_container_id=$(docker ps -q -f name=vote-operator)
@@ -72,17 +129,50 @@ check_container_status() {
     
     if [ -n "$app_container_id" ]; then
         echo "✅ Vote Operator container is running (ID: $app_container_id)"
-        echo "📡 Server should be available at: http://localhost:3000"
+        
+        # Get the actual host IP for external access
+        local host_ip=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "localhost")
+        echo "📡 Server should be available at:"
+        echo "   • Local:    http://localhost:3000"
+        echo "   • Network:  http://$host_ip:3000"
+        
+        # Check port binding
+        echo "🔍 Checking port bindings..."
+        docker port vote-operator 2>/dev/null || echo "⚠️  Could not get port info"
         
         # Wait a moment and test the health endpoint
         echo "🔍 Testing health endpoint in 10 seconds..."
         sleep 10
+        
+        # Test localhost first
         if curl -s http://localhost:3000 >/dev/null 2>&1; then
-            echo "✅ Health check passed!"
+            echo "✅ Local health check passed!"
         else
-            echo "⚠️  Health check failed - container may still be starting"
-            show_logs
+            echo "⚠️  Local health check failed - container may still be starting"
         fi
+        
+        # Test network access if different from localhost
+        if [ "$host_ip" != "localhost" ] && [ "$host_ip" != "127.0.0.1" ]; then
+            echo "🔍 Testing network accessibility..."
+            if timeout 5 bash -c "curl -s http://$host_ip:3000" >/dev/null 2>&1; then
+                echo "✅ Network health check passed!"
+            else
+                echo "⚠️  Network health check failed"
+                echo "💡 This might be due to:"
+                echo "   • Firewall blocking port 3000"
+                echo "   • Docker not binding to external interface"
+                echo "   • Network configuration issues"
+            fi
+        fi
+        
+        # Show network diagnostics
+        echo ""
+        echo "🌐 Network diagnostics:"
+        echo "   • Container IP: $(docker inspect vote-operator --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo 'unknown')"
+        echo "   • Host IP: $host_ip"
+        echo "   • Listening processes in container:"
+        docker exec vote-operator netstat -tulpn 2>/dev/null | grep :3000 || echo "     No netstat available in container"
+        
     else
         echo "❌ Vote Operator container is not running"
         
@@ -121,6 +211,10 @@ if [ $? -eq 0 ]; then
     sleep 5
     
     check_container_status
+    
+    # Run network connectivity tests
+    echo ""
+    test_network_connectivity
 else
     echo "❌ Failed to start services"
     echo "📋 Checking logs for errors..."
@@ -136,3 +230,15 @@ echo "  Follow logs:      docker compose logs -f"
 echo "  Stop services:    docker compose down"
 echo "  Restart:          docker compose restart"
 echo "  Rebuild:          docker compose up -d --build"
+echo ""
+echo "🌐 Network troubleshooting:"
+echo "  Check port:       netstat -tulpn | grep :3000"
+echo "  Test local:       curl http://localhost:3000"
+echo "  Test network:     curl http://$(hostname -I | awk '{print $1}'):3000"
+echo "  Container shell:  docker exec -it vote-operator sh"
+echo "  Container logs:   docker logs vote-operator"
+echo ""
+echo "🔥 If external access fails, try:"
+echo "  1. Check firewall: sudo ufw status (Linux) or Windows Firewall"
+echo "  2. Verify Docker daemon binding: docker info | grep 'Docker Root Dir'"
+echo "  3. Test with telnet: telnet <your-ip> 3000"

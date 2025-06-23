@@ -5,9 +5,10 @@ services:
     build: .
     container_name: vote-operator
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"  # Explicitly bind to all interfaces
     environment:
       - PORT=3000
+      - HOST=0.0.0.0  # Ensure the app binds to all interfaces
       - DB_HOST=vote-operator-db
       - DB_USER=root
       - DB_PASSWORD=rootpassword
