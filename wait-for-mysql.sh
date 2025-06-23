@@ -29,7 +29,7 @@ fi
 # Wait for MySQL to be ready
 attempt=0
 max_attempts=30
-until mysql -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl -e "SELECT 1" >/dev/null 2>&1; do
+until mysql -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --default-auth=mysql_native_password -e "SELECT 1" >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   echo "MySQL is unavailable (attempt $attempt/$max_attempts) - sleeping"
   
@@ -38,6 +38,10 @@ until mysql -h"$host" -P"$port" -u"$user" -p"$password" --skip-ssl -e "SELECT 1"
     echo "🔍 Debug information:"
     echo "   Checking if MySQL service is running..."
     nslookup "$host" || echo "   DNS resolution failed for $host"
+    
+    # Try to get more detailed error info
+    echo "   Trying to connect with verbose output:"
+    mysql -h"$host" -P"$port" -u"$user" -p"$password" --connect-timeout=5 --skip-ssl --default-auth=mysql_native_password -e "SELECT 1" 2>&1 | head -10
     exit 1
   fi
   
