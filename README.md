@@ -56,30 +56,36 @@ OPERATOR_PRIVATE_KEY=0x123..
 
 ### Docker Deployment
 
-1. Build the Docker image:
+1. **Install Docker and Docker Compose** (Ubuntu 22.04):
 
 ```bash
-docker build -t vote-operator .
+sudo apt update && sudo apt upgrade -y && \
+sudo apt install -y apt-transport-https ca-certificates curl software-properties-common && \
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+sudo apt update && \
+sudo apt install -y docker-ce docker-ce-cli containerd.io && \
+sudo curl -L "https://github.com/docker/compose/releases/download/2.24.6/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && \
+sudo chmod +x /usr/local/bin/docker-compose && \
+docker-compose --version
 ```
 
-2. Run with environment variables:
+2. **Create environment file**:
 
 ```bash
-docker run -d \
-  --name vote-operator \
-  -p 3000:3000 \
-  -e DB_HOST=your_db_host \
-  -e DB_USER=your_db_user \
-  -e DB_PASSWORD=your_db_password \
-  -e DB_DATABASE=vote_operator \
-  -e OPERATOR_PRIVATE_KEY=0x123... \
-  vote-operator
+cp env.example .env
 ```
 
-3. Or use docker-compose (see docker-compose.yml):
+3. **Edit your environment variables**:
 
 ```bash
-docker-compose up -d
+nano .env  # or use your preferred editor
+```
+
+4. **Run the deployment script**:
+
+```bash
+sudo sh ./run-docker.sh
 ```
 
 ## 🚀 Usage
